@@ -1,0 +1,8 @@
+[
+  {
+    "ConnectionConfigurations": [],
+    "Name": "ABB DEV",
+    "AppConnectionString": "User Id=ABB_LOS_DEV;Password=123123123;Data Source=losdb.ists.com.vn:1521/losdb;Max Pool Size=5000;Connection Timeout=180; Decr Pool Size=5;",
+    "BPMConnectionString": "User Id=ABBDEV_SOAINFRA;Password=asdasdasd;Data Source=losdb.ists.com.vn:1521/losdb;Max Pool Size=5000;Connection Timeout=180; Decr Pool Size=5;"
+  }
+]
