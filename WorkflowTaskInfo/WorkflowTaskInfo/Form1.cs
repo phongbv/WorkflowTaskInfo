@@ -28,6 +28,7 @@ namespace WorkflowTaskInfo
             Form1.myTimer.Tick += this.button1_Click;
             Form1.myTimer.Interval = 20000;
             Form1.myTimer.Enabled = true;
+            txtAppCode.Text = "CAR.25112020.00000593";
             if (System.Diagnostics.Debugger.IsAttached)
             {
                 Form1.myTimer.Enabled = false;
@@ -55,44 +56,42 @@ namespace WorkflowTaskInfo
             bool flag = string.IsNullOrEmpty(appCode);
             if (!flag)
             {
-                Task.Run(() =>
+                Action action = null;
+                if (action == null)
                 {
-                    Action action = null;
-                    if (action == null)
+                    action = () =>
+                    {
+                        this.txtInfo.Text = "Đang lấy thông tin...";
+                    };
+                }
+
+                UpdateUI(action);
+                OracleParameter oraCarCodePar = new OracleParameter("CARCODE", appCode);
+                using (OracleConnection appContext = new OracleConnection(conn.AppConnectionString))
+                {
+                    List<string> lstContent = new List<string>();
+                    List<string> assignUser = appContext.SqlQuery<string>("SELECT SU.USER_ID\r\n  " +
+                        "FROM CAR_STAGE cs, CAR, SYS_USER SU\r\n " +
+                        "WHERE     cs.APPLICATION_ID = CAR.ID\r\n       " +
+                        "AND CAR.APPLICATION_CODE = :CARCODE\r\n       " +
+                        "AND CAR.AMND_STATE = 'F'\r\n       AND cs.ACTION IS NULL\r\n       " +
+                        "AND cs.ASSIGNEE_ID = SU.ID(+)",
+                        oraCarCodePar).ToList();
+                    bool flag2 = assignUser.Count((string e) => !string.IsNullOrEmpty(e)) != 0;
+                    if (flag2)
                     {
                         action = () =>
                         {
-                            this.txtInfo.Text = "Đang lấy thông tin...";
+                            this.txtInfo.Text = "Hồ sơ đã được assign cho user " + string.Join(",", assignUser.Where(e => !string.IsNullOrEmpty(e)));
                         };
+                        this.UpdateUI(action);
                     }
-
-                    UpdateUI(action);
-                    OracleParameter oraCarCodePar = new OracleParameter("CARCODE", appCode);
-                    using (OracleConnection appContext = new OracleConnection(conn.AppConnectionString))
+                    else
                     {
-                        List<string> lstContent = new List<string>();
-                        List<string> assignUser = appContext.SqlQuery<string>("SELECT SU.USER_ID\r\n  " +
-                            "FROM CAR_STAGE cs, CAR, SYS_USER SU\r\n " +
-                            "WHERE     cs.APPLICATION_ID = CAR.ID\r\n       " +
-                            "AND CAR.APPLICATION_CODE = :CARCODE\r\n       " +
-                            "AND CAR.AMND_STATE = 'F'\r\n       AND cs.ACTION IS NULL\r\n       " +
-                            "AND cs.ASSIGNEE_ID = SU.ID(+)",
-                            oraCarCodePar).ToList();
-                        bool flag2 = assignUser.Count((string e) => !string.IsNullOrEmpty(e)) != 0;
-                        if (flag2)
+
+                        using (OracleConnection bpmContext = new OracleConnection(conn.BPMConnectionString))
                         {
-                            this.UpdateUI(delegate
-                            {
-                                this.txtInfo.Text = "Hồ sơ đã được assign cho user " + string.Join(",", (from e in assignUser
-                                                                                                         where !string.IsNullOrEmpty(e)
-                                                                                                         select e).ToArray<string>());
-                            });
-                        }
-                        else
-                        {
-                            using (OracleConnection bpmContext = new OracleConnection(conn.BPMConnectionString))
-                            {
-                                string sql = @"SELECT U.ORGANIZATIONAL_UNIT_NAME OU, W.*
+                            string sql = @"SELECT U.ORGANIZATIONAL_UNIT_NAME OU, W.*
   FROM WFTASK W, BPM_ORGANIZATIONAL_UNIT U
  WHERE     (   PROTECTEDTEXTATTRIBUTE11 LIKE :CARCODE
             OR PROTECTEDTEXTATTRIBUTE12 LIKE :CARCODE
@@ -113,77 +112,109 @@ namespace WorkflowTaskInfo
             OR PROTECTEDTEXTATTRIBUTE7 LIKE :CARCODE
             OR PROTECTEDTEXTATTRIBUTE8 LIKE :CARCODE
             OR PROTECTEDTEXTATTRIBUTE9 LIKE :CARCODE
-            OR PROTECTEDTEXTATTRIBUTE10 LIKE :CARCODE)
+            OR PROTECTEDTEXTATTRIBUTE10 LIKE :CARCODE
+            OR TEXTATTRIBUTE2 LIKE :CARCODE)
        AND W.ORGANIZATIONALUNITID = U.ORGANIZATIONAL_UNIT_ID(+)";
-                                var tmp = bpmContext.SqlQuery<WFTASK>(sql, new OracleParameter[] { oraCarCodePar }).ToList();
-                                List<WFTASK> listTask = (from x in tmp
-                                                         where x.STATE == "OPEN" || x.STATE == "ASSIGNED"
-                                                         select x).ToList();
-                                foreach (WFTASK task in listTask)
+                            var tmp = bpmContext.SqlQuery<WFTASK>(sql, new OracleParameter[] { oraCarCodePar }).ToList();
+                            var flowId = tmp.FirstOrDefault()?.FLOW_ID;
+                            if (flowId.HasValue)
+                            {
+                                string flowState = bpmContext.SqlQuery<string>(@"SELECT DECODE (STATE,
+               0, 'Initiated',
+               1, 'Running',
+               2, 'Suspended',
+               3, 'Faulted',
+               4, 'Closed - Pending',
+               5, 'Closed - Completed',
+               6, 'Closed - Faulted',
+               7, 'Closed - Cancelled',
+               8, 'Closed - Aborted',
+               9, 'Closed - Stale',
+               10, 'Closed - Rolled Back',
+               'unknown')    STATE
+  FROM CUBE_INSTANCE cb
+ WHERE flow_id = :flow_id", new OracleParameter("flow_id", flowId.Value)).FirstOrDefault();
+                                UpdateUI(() =>
                                 {
-                                    if (lstContent.Any())
+                                    txtFlowInfo.Text = $"Flow Id: {flowId}, State \"{flowState}\"";
+                                });
+                            }
+                            else
+                            {
+                                UpdateUI(() =>
+                                {
+                                    txtFlowInfo.Text = $"Không tìm thấy thông tin HS";
+                                });
+                            }
+                            List<WFTASK> listTask = (from x in tmp
+                                                     where x.STATE == "OPEN" || x.STATE == "ASSIGNED"
+                                                     select x).ToList();
+                            foreach (WFTASK task in listTask)
+                            {
+                                if (lstContent.Any())
+                                {
+                                    lstContent.Add("\n");
+                                }
+                                if (string.IsNullOrEmpty(task.ASSIGNEES))
+                                {
+                                    lstContent.Add(string.Concat(new string[]
                                     {
-                                        lstContent.Add("\n");
-                                    }
-                                    if (string.IsNullOrEmpty(task.ASSIGNEES))
-                                    {
-                                        lstContent.Add(string.Concat(new string[]
-                                        {
                                         "Bước \"",
                                         task.TITLE,
                                         "\", TaskId = ",
                                         task.TASKID,
                                         ", Users = Không có thông tin user nhận việc",
-                                        }));
-                                        continue;
-                                    }
-                                    if (task.ASSIGNEES.Contains(",user"))
-                                    {
+                                    }));
+                                    continue;
+                                }
+                                if (task.ASSIGNEES.Contains(",user"))
+                                {
 
-                                        lstContent.Add(string.Concat(new string[]
-                                        {
+                                    lstContent.Add(string.Concat(new string[]
+                                    {
                                         "Bước \"",
                                         task.TITLE,
                                         "\", TaskId = ",
                                         task.TASKID,
                                         ", Users = ",
                                         task.ASSIGNEES.Replace(",user","")
-                                        }));
-                                        continue;
-                                    }
-                                    else
-                                    {
-                                        List<string> lstUser = appContext.SqlQuery<string>("SELECT SU.USER_ID\r\n  " +
-                                        "FROM SYS_ROLE  SR,\r\n       SYS_USER_ROLE      SUR,\r\n       DEPARTMENT         D,\r\n       SYS_USER           SU\r\n " +
-                                        "WHERE     UPPER (SR.EXT_REF_NO_1) = UPPER (:role)\r\n       AND SR.AMND_STATE = 'F'\r\n       " +
-                                        "AND D.DEPT_ID = :ou\r\n       AND SUR.AMND_STATE = 'F'\r\n       " +
-                                        "AND D.AMND_STATE = 'F'\r\n       AND SUR.ROLE_ID = SR.ID\r\n       " +
-                                        "AND D.ID = SUR.DEPT_ID\r\n       AND SUR.USER_ID = SU.ID\r\n      " +
-                                        " AND SU.AMND_STATE = 'F'", new OracleParameter[]
-                                    {
+                                    }));
+                                    continue;
+                                }
+                                else
+                                {
+                                    List<string> lstUser = appContext.SqlQuery<string>("SELECT SU.USER_ID\r\n  " +
+                                    "FROM SYS_ROLE  SR,\r\n       SYS_USER_ROLE      SUR,\r\n       DEPARTMENT         D,\r\n       SYS_USER           SU\r\n " +
+                                    "WHERE     UPPER (SR.EXT_REF_NO_1) = UPPER (:role)\r\n       AND SR.AMND_STATE = 'F'\r\n       " +
+                                    "AND D.DEPT_ID = :ou\r\n       AND SUR.AMND_STATE = 'F'\r\n       " +
+                                    "AND D.AMND_STATE = 'F'\r\n       AND SUR.ROLE_ID = SR.ID\r\n       " +
+                                    "AND D.ID = SUR.DEPT_ID\r\n       AND SUR.USER_ID = SU.ID\r\n      " +
+                                    " AND SU.AMND_STATE = 'F'", new OracleParameter[]
+                                {
                                         new OracleParameter("role", task.ASSIGNEES),
                                         new OracleParameter("ou", task.OU)
-                                    }).ToList();
-                                        lstContent.Add(string.Concat(new string[]
-                                        {
+                                }).ToList();
+                                    lstContent.Add(string.Concat(new string[]
+                                    {
                                         "Bước \"",
                                         task.TITLE,
                                         "\", TaskId = ",
                                         task.TASKID,
                                         ", Users = ",
                                         string.Join(", ", lstUser.ToArray())
-                                        }));
-                                    }
-
+                                    }));
                                 }
+
                             }
-                            this.UpdateUI(delegate
-                            {
-                                this.txtInfo.Text = string.Join("\r\n", lstContent.ToArray());
-                            });
                         }
+                        action = () =>
+                        {
+                            this.txtInfo.Text = string.Join("\r\n", lstContent.ToArray());
+                        };
+                        this.UpdateUI(action);
                     }
-                });
+                }
+
             }
         }
 

@@ -12,7 +12,7 @@ namespace WorkflowTaskInfo
         public string TITLE { get; set; }
 
         public string TASKID { get; set; }
-        public string FLOW_ID { get; set; }
+        public int FLOW_ID { get; set; }
         public string STATE { get; set; }
         public string ASSIGNEES { get; set; }
         public DateTime UPDATEDDATE { get; set; }

@@ -25,7 +25,7 @@ namespace WorkflowTaskInfo
 				cmd.CommandText = sql;
 				cmd.Parameters.AddRange(parameters);
 				cmd.BindByName = true;
-				result = ReflectionPopulator.CreateList<T>(cmd.ExecuteReader());
+				result = CreateList<T>(cmd.ExecuteReader());
 			}
 			return result;
 		}
@@ -36,7 +36,7 @@ namespace WorkflowTaskInfo
 			List<T> results = new List<T>();
 			while (reader.Read())
 			{
-				bool flag = ReflectionPopulator.IsPrimitiveType(typeof(T)) || typeof(T) == typeof(string);
+				bool flag = IsPrimitiveType(typeof(T)) || typeof(T) == typeof(string);
 				T item;
 				if (flag)
 				{
